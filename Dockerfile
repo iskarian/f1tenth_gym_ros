@@ -1,63 +1,117 @@
-# MIT License
+ARG FROM_IMAGE=ros:humble
+ARG OVERLAY_WS=/opt/ros/f1tenth_overlay
+# TODO make headless fixes optional
+# ARG HEADLESS=-headless
 
-# Copyright (c) 2020 Hongrui Zheng
+# === CACHE STAGE ===
+FROM $FROM_IMAGE AS cacher
+ARG OVERLAY_WS
 
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
+# Keep the apt cache, as we're actually using it via cache mounts
+RUN rosdep update --rosdistro $ROS_DISTRO && \
+    cat <<EOF > /etc/apt/apt.conf.d/docker-clean && apt-get update && apt-get install -y python3-pip
+APT::Install-Recommends "false";
+APT::Install-Suggests "false";
+EOF
 
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# Copy source to image
+WORKDIR /tmp/src/f1tenth_gym_ros
+COPY ./ ./
 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
+# Patch f1tenth_gym_ros to remove dependency on rviz2 since this is headless
+RUN sed --in-place -e '/rviz2/d' package.xml
 
-FROM ros:humble
+# Patch f1tenth_gym to remove graphical dependencies since this is headless
+# opencv-python -> opencv-python-headless
+# remove pyqt6, pyqtgraph
+# remove PyOpenGL, PyOpenGL-accelerate
+RUN sed --in-place \
+    -e 's/opencv-python/opencv-python-headless/' \
+    -e '/pyqt/d' \
+    -e '/pyopengl/Id' \
+    f1tenth_gym/pyproject.toml
 
-SHELL ["/bin/bash", "-c"]
+# Derive build/exec dependencies
+RUN bash -e <<'EOF'
+declare -A types=(
+  [exec]="--dependency-types=exec"
+  [build]="")
+for type in "${!types[@]}"; do
+  rosdep install -y \
+    --from-paths . \
+    --ignore-src \
+    --reinstall \
+    --simulate \
+    ${types[$type]} \
+    | grep 'apt-get install' \
+    | awk '{gsub(/'\''/,"",$4); print $4}' \
+    | sort -u > /tmp/${type}_debs.txt
+done
+EOF
 
-ENV DEBIAN_FRONTEND=noninteractive
+# === BUILD STAGE ===
+FROM $FROM_IMAGE AS builder
+ARG OVERLAY_WS
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        git \
-        nano \
-        vim \
-        python3-pip \
-        python3-venv \
-        python3-dev \
-        libeigen3-dev \
-        tmux \
-        ros-humble-rviz2 && \
-    rm -rf /var/lib/apt/lists/*
+# Install build dependencies
+COPY --from=cacher /tmp/build_debs.txt /tmp/build_debs.txt
+RUN --mount=type=cache,target=/etc/apt/apt.conf.d,from=cacher,source=/etc/apt/apt.conf.d \
+    --mount=type=cache,target=/var/lib/apt/lists,from=cacher,source=/var/lib/apt/lists \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    < /tmp/build_debs.txt xargs apt-get install -y python3-pip python3-venv
 
-WORKDIR /sim_ws
-RUN mkdir -p /sim_ws/src/f1tenth_gym_ros
-COPY . /sim_ws/src/f1tenth_gym_ros
+# Build overlay source
+WORKDIR /tmp/src
+COPY --from=cacher /tmp/src .
 
-RUN python3 -m venv --system-site-packages /sim_ws/.venv && \
-    source /sim_ws/.venv/bin/activate && \
-    pip install -U pip && \
-    pip install -e /sim_ws/src/f1tenth_gym_ros/f1tenth_gym
+# Build f1tenth_gym and install to a new venv in the overlay
+# Note - may need to install `uv-build` and `build` on humble
+# Note - it seems that colcon-common-extensions is required for the venv to properly run colcon
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m venv $OVERLAY_WS --system-site-packages && \
+    . $OVERLAY_WS/bin/activate && \
+    pip install -U colcon-common-extensions f1tenth_gym_ros/f1tenth_gym 
 
-ENV VIRTUAL_ENV=/sim_ws/.venv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# Build f1tenth_gym_ros and install to overlay
+RUN . $OVERLAY_WS/bin/activate && \
+    python3 -m colcon build \
+      --merge-install \
+      --install-base $OVERLAY_WS \
+      --packages-select \
+        f1tenth_gym_ros \
+      --mixin release
 
-RUN source /opt/ros/humble/setup.bash && \
-    apt-get update && \
-    if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then \
-        rosdep init; \
-    fi && \
-    rosdep update && \
-    rosdep install -i --from-paths /sim_ws/src --rosdistro humble -y && \
-    colcon build --symlink-install
+# === RUNNER STAGE===
+FROM $FROM_IMAGE-ros-core AS runner
+ARG OVERLAY_WS
 
-ENTRYPOINT ["/bin/bash"]
+# Install exec dependencies
+COPY --from=cacher /tmp/exec_debs.txt /tmp/exec_debs.txt
+RUN --mount=type=cache,target=/etc/apt/apt.conf.d,from=cacher,source=/etc/apt/apt.conf.d \
+    --mount=type=cache,target=/var/lib/apt/lists,from=cacher,source=/var/lib/apt/lists \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    < /tmp/exec_debs.txt xargs apt-get install -y  
+
+# Setup overlay entrypoint
+COPY --from=builder $OVERLAY_WS $OVERLAY_WS
+ENV OVERLAY_WS=$OVERLAY_WS
+RUN sed --in-place --expression \
+     '$isource $OVERLAY_WS/bin/activate && source "$OVERLAY_WS/setup.bash" --' \
+      /ros_entrypoint.sh
+
+# Set launch file as default command
+# Note - there is no simple way to open foxglove automatically since this is in a Docker container
+# and the built-in functionality uses `xdg-open`. However, we know which port it will run on, so
+# we should be able to invoke `xdg-open` on the host as part of our tooling.
+# TODO set launch arguments via environment variables
+# TODO modify launch file to take path to sim.yaml
+CMD ["ros2", "launch", "f1tenth_gym_ros", "gym_bridge_launch.py", "open_foxglove:=false"]
+
+# The default foxglove port
+EXPOSE 8765
+
+# Set a healthcheck so dependent services can wait on us to start.
+# Using grep here is absolutely a cludge; find a way to query via ROS or the foxglove bridge?
+HEALTHCHECK --interval=1s --timeout=1s --start-period=30s \
+  CMD grep -r "Running in asynchronous mode." "/root/.ros/log"
+

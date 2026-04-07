@@ -1,0 +1,11 @@
+services:
+  sim:
+    # image: ghcr.io/iskarian/f1tenth_gym_ros
+    build: .
+    ports: ["8765"]
+    tty: true
+    # This is necessary for SIGINT to properly cause termination without a several second delay.
+    # Python gets exec'd directly, and Python doesn't know how to interpret SIGINT when it's not
+    # attached to an interactive terminal (or init process).
+    init: true
+
