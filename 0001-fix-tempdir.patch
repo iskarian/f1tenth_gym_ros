@@ -1,0 +1,23 @@
+diff --git a/launch/gym_bridge_launch.py b/launch/gym_bridge_launch.py
+index d254d1b..69b14f6 100644
+--- a/launch/gym_bridge_launch.py
++++ b/launch/gym_bridge_launch.py
+@@ -22,6 +22,7 @@
+ 
+ import os
+ import pathlib
++import tempfile
+ import yaml
+ 
+ from launch import LaunchDescription
+@@ -128,9 +129,7 @@ def generate_launch_description():
+     temp_yaml_path = None
+     # Create a temporary directory to store the scaled map yaml and image
+     # Create a temporary directory to store the scaled map yaml and image in the same location as the script
+-    script_dir = os.path.dirname(os.path.abspath(__file__))
+-    temp_dir = os.path.join(script_dir, 'temp')
+-    os.makedirs(temp_dir, exist_ok=True)
++    temp_dir = tempfile.mkdtemp()
+ 
+     temp_yaml_path = os.path.join(temp_dir, 'scaled_map.yaml')
+     temp_img_path = os.path.join(temp_dir, 'scaled_map' + map_img_ext)

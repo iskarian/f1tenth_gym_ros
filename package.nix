@@ -28,6 +28,7 @@ buildRosPackage rec {
   version = "0.0.0";
 
   src = ./.;
+  patches = [ ./0001-fix-tempdir.patch ];
 
   buildType = "ament_python";
   checkInputs = [
