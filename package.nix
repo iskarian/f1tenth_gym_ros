@@ -18,7 +18,6 @@
   python3Packages,
   rclpy,
   robot-state-publisher,
-  rviz2,
   sensor-msgs,
   teleop-twist-keyboard,
   tf2-ros,
@@ -52,7 +51,6 @@ buildRosPackage rec {
     python3Packages.scipy
     rclpy
     robot-state-publisher
-    rviz2
     sensor-msgs
     teleop-twist-keyboard
     tf2-ros
