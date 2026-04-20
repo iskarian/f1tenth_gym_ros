@@ -2,6 +2,7 @@
   inputs = {
     nix-ros-overlay.url = "github:lopsided98/nix-ros-overlay/master";
     nixpkgs.follows = "nix-ros-overlay/nixpkgs";  # IMPORTANT!!!
+    self.submodules = true;
   };
   outputs = { self, nix-ros-overlay, nixpkgs, ... }@inputs:
     nix-ros-overlay.inputs.flake-utils.lib.eachDefaultSystem (system:
