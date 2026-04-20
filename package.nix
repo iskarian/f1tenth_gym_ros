@@ -6,6 +6,7 @@
   ament-copyright,
   ament-flake8,
   ament-pep257,
+  f1tenth-gym,
   foxglove-bridge,
   geometry-msgs,
   joint-state-publisher,
@@ -38,6 +39,7 @@ buildRosPackage rec {
     python3Packages.pytest
   ];
   propagatedBuildInputs = [
+    f1tenth-gym
     ackermann-msgs
     foxglove-bridge
     geometry-msgs
