@@ -65,28 +65,32 @@ from f1tenth_gym.envs.observation import ObservationType
 from f1tenth_gym.envs.reset import ResetStrategy
 from f1tenth_gym.envs.track import Track, Raceline
 
-
-def _resolve_yaml_path(base_path: pathlib.Path) -> pathlib.Path:
-    if base_path.suffix in (".yaml", ".yml"):
-        return base_path
-    candidates = (
-        base_path.with_suffix(".yaml"),
-        base_path.with_suffix(".yml"),
-        base_path.parent / f"{base_path.stem}_map.yaml",
+def _resolve_yaml_path(base_path: pathlib.Path):
+    suffixes = ('.yaml', '.yml')
+    bases = (
+        base_path,
+        base_path.with_stem(base_path.stem + "_map"),
     )
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return base_path.with_suffix(".yaml")
+    return [base.with_suffix(suffix) for base in bases for suffix in suffixes]
 
-
-def _resolve_map_yaml_path(map_path: str) -> pathlib.Path | None:
+def resolve_map_yaml_path(map_path: str, package_share: str) -> pathlib.Path:
+    """If the user provides a path, then they should provide the exact path. No reason to leave
+    off the extension."""
     path = pathlib.Path(map_path)
-    if not path.is_absolute():
-        share_dir = pathlib.Path(get_package_share_directory("f1tenth_gym_ros"))
-        path = share_dir / map_path
-    yaml_path = _resolve_yaml_path(path)
-    return yaml_path if yaml_path.exists() else None
+
+    def candidates():
+        # Prioritize relative and absolute paths
+        yield from _resolve_yaml_path(path.resolve())
+        # If map_path does not contain path components, look for packaged maps
+        if map_path == path.name:
+            # Look in the package share first
+            yield from _resolve_yaml_path(pathlib.Path(package_share) / 'maps' / map_path)
+
+    for map_candidate in candidates():
+        if map_candidate.exists():
+            return map_candidate
+
+    raise FileNotFoundError(map_path)
 
 
 def _load_track_from_yaml(map_yaml_path: pathlib.Path, scale: float) -> tuple[Track, bool]:
@@ -189,7 +193,7 @@ class GymBridge(Node):
 
         scale = self.get_parameter('scale').value
         map_path = self.get_parameter('map_path').value
-        map_yaml_path = _resolve_map_yaml_path(map_path)
+        map_yaml_path = resolve_map_yaml_path(map_path, get_package_share_directory("f1tenth_gym_ros"))
 
         if map_yaml_path is not None:
             self.get_logger().info('Loading map from path: %s' % map_yaml_path)
