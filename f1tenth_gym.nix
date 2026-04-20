@@ -1,23 +1,6 @@
 {
   lib,
-  # buildPythonPackage,
-  fetchFromGitHub,
   python3Packages,
-  # uv-build,
-  # coverage,
-  # gymnasium,
-  # numba,
-  # numpy,
-  # opencv-python,
-  # pandas,
-  # pillow,
-  # pyopengl,
-  # pyopengl-accelerate,
-  # pyqt6,
-  # pyqtgraph,
-  # pyyaml,
-  # requests,
-  # scipy,
 }:
 
 python3Packages.buildPythonPackage {
@@ -48,26 +31,24 @@ python3Packages.buildPythonPackage {
     scipy
     marshmallow-dataclass
   ];
+
+  # Basically all tests require web access and so fail
+  # nativeCheckInputs = with python3Packages; [ pytestCheckHook ];
   
   pythonImportsCheck = [
     "f1tenth_gym"
   ];
 
-  # TODO try using pythonRelaxDeps again
-  patches = [ ./0002-relax-deps.patch ];
+  # Some dependencies need to be relaxed since Nix doesn't pin versions
   postPatch = ''
     substituteInPlace pyproject.toml \
       --replace-fail "uv_build>=0.9.26,<0.10.0" "uv-build" \
       --replace-fail "module-name = [\"f1tenth_gym\"]" "module-name = \"f1tenth_gym\""
   '';
 
-  # pythonRelaxDeps = true;
-  #   "gymnasium"
-  #   # "pyopengl"
-  #   # "pyopengl-accelerate"
-  #   # "yamldataclassconfig"
-  #   "pandas"
-  # ];
+  pythonRelaxDeps = [
+    "gymnasium"
+  ];
 
   meta = {
     description = "This is the repository of the F1TENTH Gym environment";
