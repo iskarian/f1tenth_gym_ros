@@ -22,33 +22,14 @@ pkgs.mkShell {
           pkgs.rosPackages.${rosDistro}.ament-cmake-core
           pkgs.rosPackages.${rosDistro}.python-cmake-module
         ]
+        ++ pkgs.rosPackages.${rosDistro}.f1tenth-gym-ros.propagatedBuildInputs
         ++ (
           with pkgs;
           with pkgs.rosPackages.${rosDistro};
           with extraPkgs;
           [
-            # Dependencies from package.xml files
-            ackermann-msgs
-            ament-copyright
-            ament-flake8
-            ament-pep257
-            foxglove-bridge
-            geometry-msgs
-            joint-state-publisher
-            launch
-            launch-ros
-            nav-msgs
-            nav2-lifecycle-manager
-            nav2-map-server
-            python3Packages.pytest
-            python3Packages.scipy
-            rclpy
-            robot-state-publisher
+            # This probably doesn't need to be in the build env
             rviz2
-            sensor-msgs
-            teleop-twist-keyboard
-            tf2-ros
-            xacro
           ]
         )
         ++ builtins.attrValues extraPkgs
