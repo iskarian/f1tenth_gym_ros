@@ -22,10 +22,12 @@
 
 import os
 import pathlib
+import tempfile
 import yaml
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, SetLaunchConfiguration, Shutdown
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler, SetLaunchConfiguration, Shutdown
+from launch.event_handlers import OnShutdown
 from launch.conditions import IfCondition
 from launch.substitutions import Command, EqualsSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
@@ -157,15 +159,11 @@ def _launch_setup(context, *args, **kwargs):
     map_img_ext = image_path.suffix
     map_yaml['image'] = 'scaled_map' + map_img_ext
 
-    temp_yaml_path = None
-    # Create a temporary directory to store the scaled map yaml and image
-    # Create a temporary directory to store the scaled map yaml and image in the same location as the script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    temp_dir = os.path.join(script_dir, 'temp')
-    os.makedirs(temp_dir, exist_ok=True)
-
-    temp_yaml_path = os.path.join(temp_dir, 'scaled_map.yaml')
-    temp_img_path = os.path.join(temp_dir, 'scaled_map' + map_img_ext)
+    # The map server reads the scaled files after this function returns, so the
+    # directory has to outlive it. It is removed on shutdown, see below.
+    temp_dir = tempfile.TemporaryDirectory(prefix='f1tenth_gym_map_')
+    temp_yaml_path = pathlib.Path(temp_dir.name) / 'scaled_map.yaml'
+    temp_img_path = pathlib.Path(temp_dir.name) / ('scaled_map' + map_img_ext)
 
     # Write the scaled map yaml to the temporary file
     with open(temp_yaml_path, 'w') as file:
@@ -180,7 +178,7 @@ def _launch_setup(context, *args, **kwargs):
     map_server_node = Node(
         package='nav2_map_server',
         executable='map_server',
-        parameters=[{'yaml_filename': temp_yaml_path},
+        parameters=[{'yaml_filename': str(temp_yaml_path)},
                     {'topic': 'map'},
                     {'frame_id': 'map'},
                     {'output': 'screen'},
@@ -255,6 +253,7 @@ def _launch_setup(context, *args, **kwargs):
         foxglove_ws_log,
         foxglove_target_log,
         foxglove_layout_log,
+        RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(function=lambda context: temp_dir.cleanup())])),
     ]
 
 
